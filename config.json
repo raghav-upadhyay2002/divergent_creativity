@@ -1,0 +1,21 @@
+{
+  "provider": {
+    "base_url": "https://api.groq.com/openai/v1",
+    "api_key_env": "GROQ_API_KEY",
+    "model": "openai/gpt-oss-120b",
+    "temperature": 0.5,
+    "reasoning_effort": "low",
+    "max_tokens": 1000
+  },
+  "experiment": {
+    "n_rounds": 3,
+    "runs_per_condition": 2,
+    "roles": ["product manager", "programmer"],
+    "conditions": ["no_roles", "different_roles", "same_role", "solo"],
+    "random_seed": 42
+  },
+  "paths": {
+    "glove": "a9v2t-osfstorage-archive/model/glove.840B.300d.pickle",
+    "results_dir": "results"
+  }
+}
