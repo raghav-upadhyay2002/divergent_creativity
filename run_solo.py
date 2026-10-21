@@ -12,7 +12,7 @@ CONDITION = "solo"
 RESULTS_FILE = "solo.jsonl"
 
 
-def run_once(run_id):
+def run_once(run_id, filename=RESULTS_FILE):
     reply = llm.chat([{"role": "user", "content": baseline_prompt_1}])
 
     if not reply or not reply.strip():
@@ -20,7 +20,7 @@ def run_once(run_id):
             run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
             raw_reply=reply, parsed_words=[], valid_words=[], invalid_words=[],
             score=None, status="empty")
-        results.save_run(record, RESULTS_FILE)
+        results.save_run(record, filename)
         return record
 
     parsed = parsing.parse_list(reply)
@@ -30,7 +30,7 @@ def run_once(run_id):
             run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
             raw_reply=reply, parsed_words=parsed.words, valid_words=[], invalid_words=[],
             score=None, status="parse_failed")
-        results.save_run(record, RESULTS_FILE)
+        results.save_run(record, filename)
         return record
 
     score, valid_words, invalid_words = score_details(parsed.words)
@@ -40,7 +40,7 @@ def run_once(run_id):
         run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
         raw_reply=reply, parsed_words=parsed.words, valid_words=valid_words,
         invalid_words=invalid_words, score=score, status=status)
-    results.save_run(record, RESULTS_FILE)
+    results.save_run(record, filename)
     return record
 
 

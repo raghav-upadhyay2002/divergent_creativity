@@ -74,19 +74,22 @@ def valid_words(words):
     return used
 
 
+def _mean_pairwise_distance_score(used, vectors):
+    distances = []
+    for word1, word2 in combinations(used, 2):
+        v1 = vectors[word1].astype(np.float32)
+        v2 = vectors[word2].astype(np.float32)
+        distances.append(distance.cosine(v1, v2))
+    return float((sum(distances) / len(distances)) * 100)
+
+
 def dat_score(words, min_words=7):
     vectors = _get_vectors()
     used, _ = _first_n_valid_unique(words, min_words, vectors)
     if len(used) < min_words:
         return None
 
-    distances = []
-    for word1, word2 in combinations(used, 2):
-        v1 = vectors[word1].astype(np.float32)
-        v2 = vectors[word2].astype(np.float32)
-        distances.append(distance.cosine(v1, v2))
-
-    return float((sum(distances) / len(distances)) * 100)
+    return _mean_pairwise_distance_score(used, vectors)
 
 
 def score_details(words, min_words=7):
@@ -95,11 +98,19 @@ def score_details(words, min_words=7):
 
     score = None
     if len(used) >= min_words:
-        distances = []
-        for word1, word2 in combinations(used, 2):
-            v1 = vectors[word1].astype(np.float32)
-            v2 = vectors[word2].astype(np.float32)
-            distances.append(distance.cosine(v1, v2))
-        score = float((sum(distances) / len(distances)) * 100)
+        score = _mean_pairwise_distance_score(used, vectors)
+
+    return score, used, dropped
+
+
+def score_details_all10(words, max_words=10, min_words=2):
+    """Secondary score using as many valid unique words as are available,
+    capped at max_words (10), rather than requiring exactly 7."""
+    vectors = _get_vectors()
+    used, dropped = _first_n_valid_unique(words, max_words, vectors)
+
+    score = None
+    if len(used) >= min_words:
+        score = _mean_pairwise_distance_score(used, vectors)
 
     return score, used, dropped
