@@ -86,7 +86,7 @@ def dat_score(words, min_words=7):
         v2 = vectors[word2].astype(np.float32)
         distances.append(distance.cosine(v1, v2))
 
-    return (sum(distances) / len(distances)) * 100
+    return float((sum(distances) / len(distances)) * 100)
 
 
 def score_details(words, min_words=7):
@@ -100,6 +100,6 @@ def score_details(words, min_words=7):
             v1 = vectors[word1].astype(np.float32)
             v2 = vectors[word2].astype(np.float32)
             distances.append(distance.cosine(v1, v2))
-        score = (sum(distances) / len(distances)) * 100
+        score = float((sum(distances) / len(distances)) * 100)
 
     return score, used, dropped
