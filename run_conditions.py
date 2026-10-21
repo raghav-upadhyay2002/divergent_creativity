@@ -115,7 +115,7 @@ def main():
 
 
 # ---------------------------------------------------------------------------
-# Summary reporting (pairs-type conditions only; solo records have no steps)
+# Summary reporting
 # ---------------------------------------------------------------------------
 
 def load_all_records(filename=RESULTS_FILE):
@@ -135,48 +135,82 @@ def _step(record, step_name):
     return next((s for s in record.get("steps", []) if s["step"] == step_name), None)
 
 
+def _avg(values):
+    return sum(values) / len(values) if values else None
+
+
+def summarize_solo(records):
+    scores = [r["dat_score"] for r in records if r["status"] == "ok"]
+    return {
+        "condition": "solo",
+        "n_runs": len(records),
+        "avg_score": _avg(scores),
+    }
+
+
 def summarize_condition(condition, records):
     copy_counts = {"round": [0, 0], "final": [0, 0]}  # [exact_copy count, total]
 
     start_scores = []
     final_scores = []
+    start_all10_scores = []
+    final_all10_scores = []
+    words_changed_rounds = []
     final_shared_counts = []
     final_shared_words_union = set()
 
     for record in records:
         for s in record.get("steps", []):
             step_type = s.get("step_type")
-            if step_type not in copy_counts:
-                continue
-            for label in ("agent_a", "agent_b"):
-                agent_record = s[label]
-                if agent_record and agent_record["comparison"] is not None:
-                    copy_counts[step_type][1] += 1
-                    if agent_record["comparison"]["exact_copy"]:
-                        copy_counts[step_type][0] += 1
+
+            if step_type in copy_counts:
+                for label in ("agent_a", "agent_b"):
+                    agent_record = s[label]
+                    comparison = agent_record.get("comparison") if agent_record else None
+                    if comparison is not None:
+                        copy_counts[step_type][1] += 1
+                        if comparison["exact_copy"]:
+                            copy_counts[step_type][0] += 1
+
+            if step_type == "round":
+                for label in ("agent_a", "agent_b"):
+                    agent_record = s[label]
+                    changed = agent_record.get("words_changed_since_previous") if agent_record else None
+                    if changed is not None:
+                        words_changed_rounds.append(changed)
 
         start = _step(record, "start")
         if start and start["team_score"] is not None:
             start_scores.append(start["team_score"])
+        if start and start["agent_a"] and start["agent_b"]:
+            a10 = start["agent_a"].get("score_all10")
+            b10 = start["agent_b"].get("score_all10")
+            if a10 is not None and b10 is not None:
+                start_all10_scores.append((a10 + b10) / 2)
 
         final = _step(record, "final")
         if final and final["team_score"] is not None:
             final_scores.append(final["team_score"])
+        if final and final["agent_a"] and final["agent_b"]:
+            a10 = final["agent_a"].get("score_all10")
+            b10 = final["agent_b"].get("score_all10")
+            if a10 is not None and b10 is not None:
+                final_all10_scores.append((a10 + b10) / 2)
         if final:
             final_shared_counts.append(len(final["shared_words"]))
             final_shared_words_union.update(final["shared_words"])
-
-    def avg(values):
-        return sum(values) / len(values) if values else None
 
     return {
         "condition": condition,
         "n_runs": len(records),
         "exact_copy_rounds": tuple(copy_counts["round"]),
         "exact_copy_final": tuple(copy_counts["final"]),
-        "avg_start_score": avg(start_scores),
-        "avg_final_score": avg(final_scores),
-        "avg_final_shared_words": avg(final_shared_counts),
+        "avg_start_score": _avg(start_scores),
+        "avg_final_score": _avg(final_scores),
+        "avg_start_score_all10": _avg(start_all10_scores),
+        "avg_final_score_all10": _avg(final_all10_scores),
+        "avg_words_changed_rounds": _avg(words_changed_rounds),
+        "avg_final_shared_words": _avg(final_shared_counts),
         "final_shared_words_seen": sorted(final_shared_words_union),
     }
 
@@ -186,9 +220,9 @@ def print_summary(records):
     for r in records:
         by_condition.setdefault(r["condition"], []).append(r)
 
-    # solo has no steps/rounds, so it's excluded from this (pairs-only) summary
     pair_conditions = [c for c in by_condition if c != "solo"]
     summaries = [summarize_condition(c, by_condition[c]) for c in pair_conditions]
+    solo_summary = summarize_solo(by_condition["solo"]) if "solo" in by_condition else None
 
     def fmt_ratio(pair):
         count, total = pair
@@ -196,20 +230,32 @@ def print_summary(records):
             return "n/a"
         return f"{count}/{total} ({100 * count / total:.0f}%)"
 
-    headers = ("condition", "n", "exact copy (rounds)", "exact copy (final)",
-               "avg start score", "avg final score", "avg shared @final")
+    def fmt(value, decimals=2):
+        return f"{value:.{decimals}f}" if value is not None else "-"
+
+    headers = ("condition", "n", "avg score (solo)", "exact copy (rounds)", "exact copy (final)",
+               "avg start score", "avg final score", "avg score_all10 (start)",
+               "avg score_all10 (final)", "avg words changed (rounds)", "avg shared @final")
     rows = []
+
+    if solo_summary:
+        rows.append((
+            solo_summary["condition"], solo_summary["n_runs"],
+            fmt(solo_summary["avg_score"]),
+            "-", "-", "-", "-", "-", "-", "-", "-",
+        ))
+
     for s in summaries:
         rows.append((
-            s["condition"], s["n_runs"],
+            s["condition"], s["n_runs"], "-",
             fmt_ratio(s["exact_copy_rounds"]), fmt_ratio(s["exact_copy_final"]),
-            f"{s['avg_start_score']:.2f}" if s["avg_start_score"] is not None else "-",
-            f"{s['avg_final_score']:.2f}" if s["avg_final_score"] is not None else "-",
-            f"{s['avg_final_shared_words']:.1f}" if s["avg_final_shared_words"] is not None else "-",
+            fmt(s["avg_start_score"]), fmt(s["avg_final_score"]),
+            fmt(s["avg_start_score_all10"]), fmt(s["avg_final_score_all10"]),
+            fmt(s["avg_words_changed_rounds"], 1), fmt(s["avg_final_shared_words"], 1),
         ))
 
     if not rows:
-        print("No pairs-type records to summarize yet.")
+        print("No records to summarize yet.")
         return
 
     widths = [max(len(str(r[i])) for r in ([headers] + rows)) for i in range(len(headers))]
@@ -226,6 +272,12 @@ def print_summary(records):
     for s in summaries:
         words = ", ".join(s["final_shared_words_seen"]) if s["final_shared_words_seen"] else "(none)"
         print(f"  {s['condition']}: {words}")
+
+    if "same_role" in by_condition:
+        print("\nsame_role runs -- roles used (confirming PM+PM / programmer+programmer alternation):")
+        for r in sorted(by_condition["same_role"], key=lambda r: r["run_id"]):
+            roles = r["roles"]
+            print(f"  {r['run_id']}: A={roles['A']!r}, B={roles['B']!r}")
 
 
 if __name__ == "__main__":
