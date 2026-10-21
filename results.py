@@ -11,17 +11,23 @@ def _results_dir():
     return results_dir
 
 
-def build_record(run_id, condition, prompt, raw_reply, parsed_words,
-                  valid_words, invalid_words, score, status):
+def current_settings():
     provider = load_config()["provider"]
     return {
-        "run_id": run_id,
-        "condition": condition,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
         "model": provider["model"],
         "temperature": provider["temperature"],
         "reasoning_effort": provider["reasoning_effort"],
         "max_tokens": provider["max_tokens"],
+    }
+
+
+def build_record(run_id, condition, prompt, raw_reply, parsed_words,
+                  valid_words, invalid_words, score, status):
+    return {
+        "run_id": run_id,
+        "condition": condition,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **current_settings(),
         "prompt": prompt,
         "raw_reply": raw_reply,
         "parsed_words": parsed_words,

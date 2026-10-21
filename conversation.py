@@ -1,0 +1,149 @@
+import llm
+import parsing
+import prompts
+from dat_score import score_details
+
+
+class Agent:
+    def __init__(self, name, role=None):
+        self.name = name
+        self.role = role
+        self.history = []
+
+    def send(self, content):
+        self.history.append({"role": "user", "content": content})
+        reply = llm.chat(self.history)
+        self.history.append({"role": "assistant", "content": reply})
+        return reply
+
+
+def _words_to_text(words):
+    return ", ".join(words)
+
+
+def _attempt_step(agent, prompt, parse_fn):
+    """Send prompt, parse reply. On parse failure, send ONE reminder and retry once."""
+    reply = agent.send(prompt)
+    parsed = parse_fn(reply)
+    reminders_used = 0
+
+    if parsed.status != "ok":
+        reminders_used = 1
+        reply = agent.send(prompts.reminder_prompt)
+        parsed = parse_fn(reply)
+
+    return {
+        "prompt": prompt,
+        "raw_reply": reply,
+        "comment": parsed.comment,
+        "parsed_words": parsed.words,
+        "status": "ok" if parsed.status == "ok" else "parse_failed",
+        "reminders_used": reminders_used,
+    }
+
+
+def _agent_record(result):
+    if result is None:
+        return None
+
+    score, valid_words, invalid_words = score_details(result["parsed_words"])
+
+    return {
+        "prompt": result["prompt"],
+        "raw_reply": result["raw_reply"],
+        "comment": result["comment"],
+        "parsed_words": result["parsed_words"],
+        "valid_words": valid_words,
+        "invalid_words": invalid_words,
+        "dat_score": score,
+        "reminders_used": result["reminders_used"],
+        "status": result["status"],
+    }
+
+
+def _run_step(step_name, agent_a, agent_b, prompt_a, prompt_b, parse_fn):
+    result_a = _attempt_step(agent_a, prompt_a, parse_fn)
+    record_a = _agent_record(result_a)
+
+    if record_a["status"] != "ok":
+        return _build_step(step_name, record_a, None)
+
+    result_b = _attempt_step(agent_b, prompt_b, parse_fn)
+    record_b = _agent_record(result_b)
+
+    return _build_step(step_name, record_a, record_b)
+
+
+def _build_step(step_name, record_a, record_b):
+    status = "ok" if record_a and record_b and record_a["status"] == "ok" \
+        and record_b["status"] == "ok" else "parse_failed"
+
+    team_score = None
+    if record_a and record_b and record_a["dat_score"] is not None \
+            and record_b["dat_score"] is not None:
+        team_score = (record_a["dat_score"] + record_b["dat_score"]) / 2
+
+    shared_words = []
+    if record_a and record_b:
+        shared_words = sorted(set(record_a["valid_words"]) & set(record_b["valid_words"]))
+
+    return {
+        "step": step_name,
+        "status": status,
+        "agent_a": record_a,
+        "agent_b": record_b,
+        "team_score": team_score,
+        "shared_words": shared_words,
+    }
+
+
+def run_pair(role_a, role_b):
+    agent_a = Agent("A", role_a)
+    agent_b = Agent("B", role_b)
+
+    steps = []
+
+    start_prompt_a = prompts.role_start_prompt(role_a) if role_a else prompts.baseline_prompt_1
+    start_prompt_b = prompts.role_start_prompt(role_b) if role_b else prompts.baseline_prompt_1
+
+    step = _run_step("start", agent_a, agent_b, start_prompt_a, start_prompt_b, parsing.parse_list)
+    steps.append(step)
+
+    if step["status"] == "ok":
+        prev_a = step["agent_a"]["parsed_words"]
+        prev_b = step["agent_b"]["parsed_words"]
+
+        for round_n in (1, 2, 3):
+            prompt_a = prompts.round_prompt_template.format(partner_list=_words_to_text(prev_b))
+            prompt_b = prompts.round_prompt_template.format(partner_list=_words_to_text(prev_a))
+
+            step = _run_step(f"round_{round_n}", agent_a, agent_b, prompt_a, prompt_b,
+                              parsing.parse_round)
+            steps.append(step)
+
+            if step["status"] != "ok":
+                break
+
+            prev_a = step["agent_a"]["parsed_words"]
+            prev_b = step["agent_b"]["parsed_words"]
+
+        else:
+            prompt_a = prompts.final_prompt_template.format(partner_list=_words_to_text(prev_b))
+            prompt_b = prompts.final_prompt_template.format(partner_list=_words_to_text(prev_a))
+
+            step = _run_step("final", agent_a, agent_b, prompt_a, prompt_b, parsing.parse_list)
+            steps.append(step)
+
+    total_reminders = sum(
+        (s["agent_a"]["reminders_used"] if s["agent_a"] else 0)
+        + (s["agent_b"]["reminders_used"] if s["agent_b"] else 0)
+        for s in steps
+    )
+    overall_status = "ok" if all(s["status"] == "ok" for s in steps) else "parse_failed"
+
+    return {
+        "roles": {"A": role_a, "B": role_b},
+        "steps": steps,
+        "total_reminders_used": total_reminders,
+        "status": overall_status,
+    }
