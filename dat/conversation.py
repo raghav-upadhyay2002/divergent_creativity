@@ -1,10 +1,10 @@
-import llm
-import parsing
-import prompts
-from dat_score import score_details, score_details_all10
+from . import llm, parsing, prompts
+from .scoring import score_details, score_details_all10
 
 
 class Agent:
+    """One LLM agent with its own name, optional role, and message history."""
+
     def __init__(self, name, role=None, client=None):
         self.name = name
         self.role = role
@@ -20,10 +20,12 @@ class Agent:
 
 
 def _words_to_text(words):
+    """Join a word list back into the comma-separated form used in prompts."""
     return ", ".join(words)
 
 
 def _norm(word):
+    """Lowercase and strip a word for case-insensitive comparison."""
     return word.strip().lower()
 
 
@@ -108,11 +110,12 @@ def attempt_step(agent, prompt, parse_fn):
 
 
 def _agent_record(result, own_previous=None, partner_previous=None, own_previous_valid=None):
+    """Score one agent's attempt_step() result and package it for storage."""
     if result is None:
         return None
 
     score, valid_words, invalid_words = score_details(result["parsed_words"])
-    score_all10, _used_all10, _dropped_all10 = score_details_all10(result["parsed_words"])
+    score_all10, valid_words_all10, _dropped_all10 = score_details_all10(result["parsed_words"])
 
     comparison = None
     if result["status"] == "ok" and own_previous is not None and partner_previous is not None:
@@ -132,6 +135,8 @@ def _agent_record(result, own_previous=None, partner_previous=None, own_previous
         "invalid_words": invalid_words,
         "dat_score": score,
         "score_all10": score_all10,
+        "score_all10_n_words": len(valid_words_all10),
+        "valid_words_all10": valid_words_all10,
         "words_changed_since_previous": words_changed_since_previous,
         "retries_used": result["retries_used"],
         "reminders_used": result["reminders_used"],
@@ -142,6 +147,7 @@ def _agent_record(result, own_previous=None, partner_previous=None, own_previous
 
 def _run_step(step_name, step_type, agent_a, agent_b, prompt_a, prompt_b, parse_fn,
               prev_words=None, prev_valid_words=None):
+    """Run one step for agent_a, and for agent_b too unless it's None (the solo case)."""
     own_prev_a = prev_words["A"] if prev_words else None
     partner_prev_a = prev_words["B"] if prev_words else None
     own_prev_b = prev_words["B"] if prev_words else None
@@ -153,7 +159,7 @@ def _run_step(step_name, step_type, agent_a, agent_b, prompt_a, prompt_b, parse_
     result_a = attempt_step(agent_a, prompt_a, parse_fn)
     record_a = _agent_record(result_a, own_prev_a, partner_prev_a, own_prev_valid_a)
 
-    if record_a["status"] != "ok":
+    if record_a["status"] != "ok" or agent_b is None:
         return _build_step(step_name, step_type, record_a, None)
 
     result_b = attempt_step(agent_b, prompt_b, parse_fn)
@@ -163,6 +169,7 @@ def _run_step(step_name, step_type, agent_a, agent_b, prompt_a, prompt_b, parse_
 
 
 def _build_step(step_name, step_type, record_a, record_b):
+    """Combine both agents' records for a step into one step record."""
     if record_a["status"] != "ok":
         status = record_a["status"]
     elif record_b is None:
@@ -193,7 +200,39 @@ def _build_step(step_name, step_type, record_a, record_b):
     }
 
 
+def _finish_run(role_a, role_b, steps):
+    """Build the final run result dict shared by run_solo() and run_pair()."""
+    total_reminders = sum(
+        (s["agent_a"]["reminders_used"] if s["agent_a"] else 0)
+        + (s["agent_b"]["reminders_used"] if s["agent_b"] else 0)
+        for s in steps
+    )
+    total_retries = sum(
+        (s["agent_a"]["retries_used"] if s["agent_a"] else 0)
+        + (s["agent_b"]["retries_used"] if s["agent_b"] else 0)
+        for s in steps
+    )
+    overall_status = next((s["status"] for s in steps if s["status"] != "ok"), "ok")
+
+    return {
+        "roles": {"A": role_a, "B": role_b},
+        "steps": steps,
+        "total_reminders_used": total_reminders,
+        "total_retries_used": total_retries,
+        "status": overall_status,
+    }
+
+
+def run_solo(client=None):
+    """Run one agent through a single baseline prompt (the "solo" condition)."""
+    agent = Agent("A", client=client)
+    step = _run_step("start", "start", agent, None, prompts.baseline_prompt_1, None,
+                      parsing.parse_list)
+    return _finish_run(None, None, [step])
+
+
 def run_pair(role_a, role_b, client=None):
+    """Run a two-agent conversation: start, 3 rounds, then a final combined list."""
     agent_a = Agent("A", role_a, client=client)
     agent_b = Agent("B", role_b, client=client)
 
@@ -240,22 +279,4 @@ def run_pair(role_a, role_b, client=None):
                               prev_valid_words={"A": prev_valid_a, "B": prev_valid_b})
             steps.append(step)
 
-    total_reminders = sum(
-        (s["agent_a"]["reminders_used"] if s["agent_a"] else 0)
-        + (s["agent_b"]["reminders_used"] if s["agent_b"] else 0)
-        for s in steps
-    )
-    total_retries = sum(
-        (s["agent_a"]["retries_used"] if s["agent_a"] else 0)
-        + (s["agent_b"]["retries_used"] if s["agent_b"] else 0)
-        for s in steps
-    )
-    overall_status = next((s["status"] for s in steps if s["status"] != "ok"), "ok")
-
-    return {
-        "roles": {"A": role_a, "B": role_b},
-        "steps": steps,
-        "total_reminders_used": total_reminders,
-        "total_retries_used": total_retries,
-        "status": overall_status,
-    }
+    return _finish_run(role_a, role_b, steps)

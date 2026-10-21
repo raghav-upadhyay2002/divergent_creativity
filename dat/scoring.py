@@ -5,12 +5,13 @@ from itertools import combinations
 import numpy as np
 from scipy.spatial import distance
 
-from config import load_config
+from .config import load_config
 
 _vectors = None
 
 
 def _get_vectors():
+    """Load and cache the GloVe vectors from the configured path."""
     global _vectors
     if _vectors is None:
         glove_path = load_config()["paths"]["glove"]
@@ -48,6 +49,7 @@ def validate(word: str, vectors):
 
 
 def _split(words):
+    """Split a comma-separated string into words, or pass a list through."""
     if isinstance(words, str):
         return [w.strip() for w in words.split(",")]
     return list(words)
@@ -69,12 +71,14 @@ def _first_n_valid_unique(words, n, vectors):
 
 
 def valid_words(words):
+    """Return the first 7 valid, unique words (the ones the DAT score uses)."""
     vectors = _get_vectors()
     used, _ = _first_n_valid_unique(words, 7, vectors)
     return used
 
 
 def _mean_pairwise_distance_score(used, vectors):
+    """Olson's DAT formula: mean cosine distance over all pairs, times 100."""
     distances = []
     for word1, word2 in combinations(used, 2):
         v1 = vectors[word1].astype(np.float32)
@@ -84,6 +88,7 @@ def _mean_pairwise_distance_score(used, vectors):
 
 
 def dat_score(words, min_words=7):
+    """Return the DAT score for words, or None if fewer than min_words are valid."""
     vectors = _get_vectors()
     used, _ = _first_n_valid_unique(words, min_words, vectors)
     if len(used) < min_words:
@@ -93,6 +98,7 @@ def dat_score(words, min_words=7):
 
 
 def score_details(words, min_words=7):
+    """Return (score, valid_words_used, invalid_words) for the main DAT score."""
     vectors = _get_vectors()
     used, dropped = _first_n_valid_unique(words, min_words, vectors)
 
@@ -103,9 +109,8 @@ def score_details(words, min_words=7):
     return score, used, dropped
 
 
-def score_details_all10(words, max_words=10, min_words=2):
-    """Secondary score using as many valid unique words as are available,
-    capped at max_words (10), rather than requiring exactly 7."""
+def score_details_all10(words, max_words=10, min_words=7):
+    """Like score_details, but scores up to 10 valid words instead of exactly 7."""
     vectors = _get_vectors()
     used, dropped = _first_n_valid_unique(words, max_words, vectors)
 

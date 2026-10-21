@@ -12,6 +12,7 @@ _baseline_rules = baseline_prompt_1.split("\n", 1)[1]
 
 
 def role_start_prompt(role):
+    """Build the start prompt for an agent playing the given role."""
     return (
         f"Imagine you are a {role}, help me generate 10 nouns that are as different "
         f"from each other as possible using the instructions below:\n{_baseline_rules}"

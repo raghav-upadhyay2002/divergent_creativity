@@ -13,6 +13,7 @@ class ParseResult:
 
 
 def _clean_token(token):
+    """Strip whitespace, numbering, bullets and trailing periods from one word."""
     token = token.strip()
     token = re.sub(r"^\d+[\.\)]\s*", "", token)  # leading numbering: "1. " or "1) "
     token = re.sub(r"^[-•]\s*", "", token)  # leading bullet: "- " or "• "
@@ -21,6 +22,7 @@ def _clean_token(token):
 
 
 def _split_words(text):
+    """Split text on commas/newlines and clean each resulting word."""
     raw_tokens = re.split(r"[,\n]+", text)
     words = [_clean_token(t) for t in raw_tokens]
     return [w for w in words if w]

@@ -5,7 +5,7 @@ import openai
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from config import load_config
+from .config import load_config
 
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
@@ -31,6 +31,7 @@ class DailyLimitReached(Exception):
 
 
 def _get_provider_config():
+    """Load and cache the active config's provider settings."""
     global _provider_config
     if _provider_config is None:
         _provider_config = load_config()["provider"]
@@ -38,6 +39,7 @@ def _get_provider_config():
 
 
 def _get_client():
+    """Build and cache the OpenAI-compatible client for the active config."""
     global _client
     if _client is None:
         import os
@@ -49,10 +51,12 @@ def _get_client():
 
 
 def _sleep(seconds):
+    """Sleep for seconds (its own function so tests can patch it out)."""
     time.sleep(seconds)
 
 
 def _extract_retry_after(error):
+    """Read the Retry-After header (in seconds) off a rate-limit error, if present."""
     try:
         value = error.response.headers.get("retry-after")
         return float(value) if value is not None else None
@@ -61,19 +65,17 @@ def _extract_retry_after(error):
 
 
 def _looks_like_daily_limit(error):
+    """Guess whether a rate-limit error is a daily (not per-minute) limit."""
     return "daily" in str(error).lower()
 
 
 def _backoff_seconds(tries):
+    """Exponential backoff: 2, 4, 8, ... seconds, capped at BACKOFF_CAP."""
     return min(BACKOFF_BASE ** tries, BACKOFF_CAP)
 
 
 def send(messages, max_tokens=None, client=None):
-    """Send messages to the configured model, with retry/backoff.
-
-    Returns a dict: {"content": str, "finish_reason": str|None,
-    "usage": {"prompt_tokens", "completion_tokens", "total_tokens"} | None}.
-    """
+    """Send messages to the model with retry/backoff; return content, finish_reason, usage."""
     provider = _get_provider_config()
     active_client = client or _get_client()
     tokens_limit = max_tokens if max_tokens is not None else provider["max_tokens"]
@@ -140,13 +142,11 @@ def send(messages, max_tokens=None, client=None):
         }
 
 
-def chat(messages, max_tokens=None, client=None):
-    return send(messages, max_tokens=max_tokens, client=client)["content"]
-
-
 def total_tokens_used():
+    """Return the running total of tokens used across all send() calls."""
     return _total_tokens
 
 
 def print_token_usage():
+    """Print the running total of tokens used so far."""
     print(f"Total tokens used: {_total_tokens}")

@@ -2,11 +2,12 @@ import json
 import os
 from pathlib import Path
 
-_DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.json"
+_DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "configs" / "gptoss.json"
 _KEY_PREFIXES = ("gsk_", "sk-")
 
 
 def load_config(path=None):
+    """Load a config file (default: configs/gptoss.json, or $DAT_CONFIG_PATH)."""
     if path is None:
         path = os.environ.get("DAT_CONFIG_PATH", _DEFAULT_CONFIG_PATH)
 

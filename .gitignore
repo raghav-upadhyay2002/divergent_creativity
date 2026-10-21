@@ -1,3 +1,4 @@
 a9v2t-osfstorage-archive/
 .venv/
 .env
+.pytest_cache/
