@@ -5,16 +5,18 @@ from dat_score import score_details, score_details_all10
 
 
 class Agent:
-    def __init__(self, name, role=None):
+    def __init__(self, name, role=None, client=None):
         self.name = name
         self.role = role
+        self.client = client
         self.history = []
 
     def send(self, content):
+        """Send content, return llm.send()'s rich dict (content/finish_reason/usage)."""
         self.history.append({"role": "user", "content": content})
-        reply = llm.chat(self.history)
-        self.history.append({"role": "assistant", "content": reply})
-        return reply
+        result = llm.send(self.history, client=self.client)
+        self.history.append({"role": "assistant", "content": result["content"]})
+        return result
 
 
 def _words_to_text(words):
@@ -55,23 +57,52 @@ def _compare_lists(new_words, own_previous, partner_previous):
     }
 
 
-def _attempt_step(agent, prompt, parse_fn):
-    """Send prompt, parse reply. On parse failure, send ONE reminder and retry once."""
-    reply = agent.send(prompt)
+def attempt_step(agent, prompt, parse_fn):
+    """Send prompt, parse reply, and recover from a bad first attempt.
+
+    - Empty reply -> resend the SAME prompt once (a retry, not a reminder).
+    - Non-empty but unreadable -> send the format reminder once.
+    - Whichever path applies, if it still fails the specific parsing status
+      ("empty", "too_few_words", "unreadable") is kept, not a generic failure code.
+
+    Every attempt (prompt, raw reply, finish_reason, usage) is recorded and kept --
+    the first reply is never overwritten/discarded.
+    """
+    attempts = []
+
+    def _send(prompt_text):
+        result = agent.send(prompt_text)
+        attempts.append({
+            "prompt": prompt_text,
+            "raw_reply": result["content"],
+            "finish_reason": result["finish_reason"],
+            "usage": result["usage"],
+        })
+        return result["content"]
+
+    reply = _send(prompt)
     parsed = parse_fn(reply)
+
+    retries_used = 0
     reminders_used = 0
 
-    if parsed.status != "ok":
+    if parsed.status == "empty":
+        retries_used = 1
+        reply = _send(prompt)  # resend the SAME prompt, not a reminder
+        parsed = parse_fn(reply)
+    elif parsed.status != "ok":
         reminders_used = 1
-        reply = agent.send(prompts.reminder_prompt)
+        reply = _send(prompts.reminder_prompt)
         parsed = parse_fn(reply)
 
     return {
         "prompt": prompt,
+        "attempts": attempts,
         "raw_reply": reply,
         "comment": parsed.comment,
         "parsed_words": parsed.words,
-        "status": "ok" if parsed.status == "ok" else "parse_failed",
+        "status": parsed.status,  # "ok", "empty", "too_few_words", or "unreadable"
+        "retries_used": retries_used,
         "reminders_used": reminders_used,
     }
 
@@ -93,6 +124,7 @@ def _agent_record(result, own_previous=None, partner_previous=None, own_previous
 
     return {
         "prompt": result["prompt"],
+        "attempts": result["attempts"],
         "raw_reply": result["raw_reply"],
         "comment": result["comment"],
         "parsed_words": result["parsed_words"],
@@ -101,6 +133,7 @@ def _agent_record(result, own_previous=None, partner_previous=None, own_previous
         "dat_score": score,
         "score_all10": score_all10,
         "words_changed_since_previous": words_changed_since_previous,
+        "retries_used": result["retries_used"],
         "reminders_used": result["reminders_used"],
         "status": result["status"],
         "comparison": comparison,
@@ -117,21 +150,27 @@ def _run_step(step_name, step_type, agent_a, agent_b, prompt_a, prompt_b, parse_
     own_prev_valid_a = prev_valid_words["A"] if prev_valid_words else None
     own_prev_valid_b = prev_valid_words["B"] if prev_valid_words else None
 
-    result_a = _attempt_step(agent_a, prompt_a, parse_fn)
+    result_a = attempt_step(agent_a, prompt_a, parse_fn)
     record_a = _agent_record(result_a, own_prev_a, partner_prev_a, own_prev_valid_a)
 
     if record_a["status"] != "ok":
         return _build_step(step_name, step_type, record_a, None)
 
-    result_b = _attempt_step(agent_b, prompt_b, parse_fn)
+    result_b = attempt_step(agent_b, prompt_b, parse_fn)
     record_b = _agent_record(result_b, own_prev_b, partner_prev_b, own_prev_valid_b)
 
     return _build_step(step_name, step_type, record_a, record_b)
 
 
 def _build_step(step_name, step_type, record_a, record_b):
-    status = "ok" if record_a and record_b and record_a["status"] == "ok" \
-        and record_b["status"] == "ok" else "parse_failed"
+    if record_a["status"] != "ok":
+        status = record_a["status"]
+    elif record_b is None:
+        status = "ok"
+    elif record_b["status"] != "ok":
+        status = record_b["status"]
+    else:
+        status = "ok"
 
     team_score = None
     if record_a and record_b and record_a["dat_score"] is not None \
@@ -154,9 +193,9 @@ def _build_step(step_name, step_type, record_a, record_b):
     }
 
 
-def run_pair(role_a, role_b):
-    agent_a = Agent("A", role_a)
-    agent_b = Agent("B", role_b)
+def run_pair(role_a, role_b, client=None):
+    agent_a = Agent("A", role_a, client=client)
+    agent_b = Agent("B", role_b, client=client)
 
     steps = []
 
@@ -206,11 +245,17 @@ def run_pair(role_a, role_b):
         + (s["agent_b"]["reminders_used"] if s["agent_b"] else 0)
         for s in steps
     )
-    overall_status = "ok" if all(s["status"] == "ok" for s in steps) else "parse_failed"
+    total_retries = sum(
+        (s["agent_a"]["retries_used"] if s["agent_a"] else 0)
+        + (s["agent_b"]["retries_used"] if s["agent_b"] else 0)
+        for s in steps
+    )
+    overall_status = next((s["status"] for s in steps if s["status"] != "ok"), "ok")
 
     return {
         "roles": {"A": role_a, "B": role_b},
         "steps": steps,
         "total_reminders_used": total_reminders,
+        "total_retries_used": total_retries,
         "status": overall_status,
     }

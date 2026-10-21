@@ -1,3 +1,4 @@
+import re
 import time
 
 import openai
@@ -5,6 +6,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from config import load_config
+
+_THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 load_dotenv()
 
@@ -65,10 +68,26 @@ def _backoff_seconds(tries):
     return min(BACKOFF_BASE ** tries, BACKOFF_CAP)
 
 
-def chat(messages, max_tokens=None, client=None):
+def send(messages, max_tokens=None, client=None):
+    """Send messages to the configured model, with retry/backoff.
+
+    Returns a dict: {"content": str, "finish_reason": str|None,
+    "usage": {"prompt_tokens", "completion_tokens", "total_tokens"} | None}.
+    """
     provider = _get_provider_config()
     active_client = client or _get_client()
     tokens_limit = max_tokens if max_tokens is not None else provider["max_tokens"]
+
+    create_kwargs = {
+        "model": provider["model"],
+        "temperature": provider["temperature"],
+        "max_tokens": tokens_limit,
+    }
+    if "reasoning_effort" in provider:
+        create_kwargs["reasoning_effort"] = provider["reasoning_effort"]
+    if "reasoning_format" in provider:
+        # not a native SDK param -- passed straight through in the request body
+        create_kwargs["extra_body"] = {"reasoning_format": provider["reasoning_format"]}
 
     rate_limit_tries = 0
     network_tries = 0
@@ -76,11 +95,8 @@ def chat(messages, max_tokens=None, client=None):
     while True:
         try:
             response = active_client.chat.completions.create(
-                model=provider["model"],
                 messages=messages,
-                temperature=provider["temperature"],
-                reasoning_effort=provider["reasoning_effort"],
-                max_tokens=tokens_limit,
+                **create_kwargs,
             )
         except openai.RateLimitError as error:
             rate_limit_tries += 1
@@ -103,12 +119,29 @@ def chat(messages, max_tokens=None, client=None):
             _sleep(_backoff_seconds(network_tries))
             continue
 
+        usage = None
         if response.usage is not None:
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
             global _total_tokens
             _total_tokens += response.usage.total_tokens
 
-        reply = response.choices[0].message.content
-        return reply or ""
+        choice = response.choices[0]
+        reply = choice.message.content or ""
+        reply = _THINK_TAG_RE.sub("", reply).strip()
+
+        return {
+            "content": reply,
+            "finish_reason": choice.finish_reason,
+            "usage": usage,
+        }
+
+
+def chat(messages, max_tokens=None, client=None):
+    return send(messages, max_tokens=max_tokens, client=client)["content"]
 
 
 def total_tokens_used():

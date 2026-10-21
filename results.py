@@ -13,27 +13,35 @@ def _results_dir():
 
 def current_settings():
     provider = load_config()["provider"]
-    return {
+    settings = {
         "model": provider["model"],
         "temperature": provider["temperature"],
-        "reasoning_effort": provider["reasoning_effort"],
         "max_tokens": provider["max_tokens"],
     }
+    if "reasoning_effort" in provider:
+        settings["reasoning_effort"] = provider["reasoning_effort"]
+    if "reasoning_format" in provider:
+        settings["reasoning_format"] = provider["reasoning_format"]
+    return settings
 
 
 def build_record(run_id, condition, prompt, raw_reply, parsed_words,
-                  valid_words, invalid_words, score, status):
+                  valid_words, invalid_words, score, status,
+                  attempts=None, retries_used=0, reminders_used=0):
     return {
         "run_id": run_id,
         "condition": condition,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         **current_settings(),
         "prompt": prompt,
+        "attempts": attempts or [],
         "raw_reply": raw_reply,
         "parsed_words": parsed_words,
         "valid_words": valid_words,
         "invalid_words": invalid_words,
         "dat_score": score,
+        "retries_used": retries_used,
+        "reminders_used": reminders_used,
         "status": status,
     }
 

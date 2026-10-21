@@ -23,18 +23,21 @@ class FakeMessage:
 
 
 class FakeChoice:
-    def __init__(self, content):
+    def __init__(self, content, finish_reason="stop"):
         self.message = FakeMessage(content)
+        self.finish_reason = finish_reason
 
 
 class FakeUsage:
-    def __init__(self, total_tokens):
+    def __init__(self, total_tokens, prompt_tokens=5):
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = total_tokens - prompt_tokens
         self.total_tokens = total_tokens
 
 
 class FakeResponse:
-    def __init__(self, content="ok", total_tokens=10):
-        self.choices = [FakeChoice(content)]
+    def __init__(self, content="ok", total_tokens=10, finish_reason="stop"):
+        self.choices = [FakeChoice(content, finish_reason)]
         self.usage = FakeUsage(total_tokens)
 
 

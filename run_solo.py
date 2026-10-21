@@ -1,7 +1,9 @@
+import argparse
+import os
 import statistics
-import sys
 from collections import Counter
 
+import conversation
 import llm
 import parsing
 import results
@@ -12,44 +14,50 @@ CONDITION = "solo"
 RESULTS_FILE = "solo.jsonl"
 
 
-def run_once(run_id, filename=RESULTS_FILE):
-    reply = llm.chat([{"role": "user", "content": baseline_prompt_1}])
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run the solo DAT baseline.")
+    parser.add_argument("--config", default="config.json",
+                         help="Path to the config file to use (default: config.json)")
+    parser.add_argument("--out", default="solo.jsonl",
+                         help="Results filename inside paths.results_dir (default: solo.jsonl)")
+    parser.add_argument("--n", type=int, default=20,
+                         help="Number of runs (default: 20)")
+    return parser.parse_args()
 
-    if not reply or not reply.strip():
+
+def run_once(run_id, filename=RESULTS_FILE, client=None):
+    agent = conversation.Agent("solo", client=client)
+    result = conversation.attempt_step(agent, baseline_prompt_1, parsing.parse_list)
+
+    if result["status"] != "ok":
         record = results.build_record(
             run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
-            raw_reply=reply, parsed_words=[], valid_words=[], invalid_words=[],
-            score=None, status="empty")
+            raw_reply=result["raw_reply"], parsed_words=result["parsed_words"],
+            valid_words=[], invalid_words=[], score=None, status=result["status"],
+            attempts=result["attempts"], retries_used=result["retries_used"],
+            reminders_used=result["reminders_used"])
         results.save_run(record, filename)
         return record
 
-    parsed = parsing.parse_list(reply)
-
-    if parsed.status != "ok":
-        record = results.build_record(
-            run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
-            raw_reply=reply, parsed_words=parsed.words, valid_words=[], invalid_words=[],
-            score=None, status="parse_failed")
-        results.save_run(record, filename)
-        return record
-
-    score, valid_words, invalid_words = score_details(parsed.words)
+    score, valid_words, invalid_words = score_details(result["parsed_words"])
     status = "ok" if score is not None else "too_few_valid"
 
     record = results.build_record(
         run_id=run_id, condition=CONDITION, prompt=baseline_prompt_1,
-        raw_reply=reply, parsed_words=parsed.words, valid_words=valid_words,
-        invalid_words=invalid_words, score=score, status=status)
+        raw_reply=result["raw_reply"], parsed_words=result["parsed_words"],
+        valid_words=valid_words, invalid_words=invalid_words, score=score, status=status,
+        attempts=result["attempts"], retries_used=result["retries_used"],
+        reminders_used=result["reminders_used"])
     results.save_run(record, filename)
     return record
 
 
-def main(n_runs=20):
+def main(n_runs=20, filename=RESULTS_FILE):
     records = []
     for i in range(n_runs):
         run_id = f"solo-{i:03d}"
         try:
-            record = run_once(run_id)
+            record = run_once(run_id, filename=filename)
         except llm.DailyLimitReached:
             print(f"Daily limit reached. Saved {len(records)} run(s) before stopping.")
             break
@@ -90,5 +98,6 @@ def print_summary(records):
 
 
 if __name__ == "__main__":
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-    main(n)
+    args = parse_args()
+    os.environ["DAT_CONFIG_PATH"] = args.config
+    main(n_runs=args.n, filename=args.out)
