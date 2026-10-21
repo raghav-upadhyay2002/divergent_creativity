@@ -60,6 +60,39 @@ def print_table(steps):
         print_row(row)
 
 
+def print_copy_table(steps):
+    def fmt_bool(value):
+        return "Y" if value else "N"
+
+    rows = []
+    for s in steps:
+        for label, record in (("A", s["agent_a"]), ("B", s["agent_b"])):
+            if record is None or record["comparison"] is None:
+                continue
+            c = record["comparison"]
+            rows.append((
+                s["step"], label,
+                fmt_bool(c["exact_copy"]), fmt_bool(c["same_words"]),
+                c["kept_from_own"], c["taken_from_partner"], c["brand_new"],
+            ))
+
+    if not rows:
+        return
+
+    headers = ("step", "agent", "exact copy", "same words",
+               "kept (own)", "taken (partner)", "brand new")
+    widths = [max(len(str(r[i])) for r in ([headers] + rows)) for i in range(len(headers))]
+
+    def print_row(row):
+        print(" | ".join(str(v).ljust(widths[i]) for i, v in enumerate(row)))
+
+    print("\n--- Copying behavior (vs. own previous list / partner's previous list) ---")
+    print_row(headers)
+    print("-+-".join("-" * w for w in widths))
+    for row in rows:
+        print_row(row)
+
+
 def print_transcript(steps):
     print("\n--- Transcript ---")
     for s in steps:
@@ -81,6 +114,7 @@ def main(role_a="product manager", role_b="programmer", run_id="pairs-000"):
 
     print(f"Run status: {record['status']} (reminders used: {record['total_reminders_used']})\n")
     print_table(record["steps"])
+    print_copy_table(record["steps"])
     print_transcript(record["steps"])
 
     return record

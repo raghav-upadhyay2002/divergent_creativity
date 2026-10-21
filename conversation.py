@@ -21,6 +21,40 @@ def _words_to_text(words):
     return ", ".join(words)
 
 
+def _norm(word):
+    return word.strip().lower()
+
+
+def _compare_lists(new_words, own_previous, partner_previous):
+    """Compare a new list against the agent's own previous list and the
+    partner's previous list (the one shown to the agent in its prompt)."""
+    new_norm = [_norm(w) for w in new_words]
+    own_prev_norm = [_norm(w) for w in own_previous]
+    partner_prev_norm = [_norm(w) for w in partner_previous]
+
+    own_prev_set = set(own_prev_norm)
+    partner_prev_set = set(partner_prev_norm)
+
+    kept_from_own = 0
+    taken_from_partner = 0
+    brand_new = 0
+    for w in new_norm:
+        if w in own_prev_set:
+            kept_from_own += 1
+        elif w in partner_prev_set:
+            taken_from_partner += 1
+        else:
+            brand_new += 1
+
+    return {
+        "exact_copy": new_norm == partner_prev_norm,
+        "same_words": set(new_norm) == partner_prev_set,
+        "kept_from_own": kept_from_own,
+        "taken_from_partner": taken_from_partner,
+        "brand_new": brand_new,
+    }
+
+
 def _attempt_step(agent, prompt, parse_fn):
     """Send prompt, parse reply. On parse failure, send ONE reminder and retry once."""
     reply = agent.send(prompt)
@@ -42,11 +76,15 @@ def _attempt_step(agent, prompt, parse_fn):
     }
 
 
-def _agent_record(result):
+def _agent_record(result, own_previous=None, partner_previous=None):
     if result is None:
         return None
 
     score, valid_words, invalid_words = score_details(result["parsed_words"])
+
+    comparison = None
+    if result["status"] == "ok" and own_previous is not None and partner_previous is not None:
+        comparison = _compare_lists(result["parsed_words"], own_previous, partner_previous)
 
     return {
         "prompt": result["prompt"],
@@ -58,18 +96,24 @@ def _agent_record(result):
         "dat_score": score,
         "reminders_used": result["reminders_used"],
         "status": result["status"],
+        "comparison": comparison,
     }
 
 
-def _run_step(step_name, agent_a, agent_b, prompt_a, prompt_b, parse_fn):
+def _run_step(step_name, agent_a, agent_b, prompt_a, prompt_b, parse_fn, prev_words=None):
+    own_prev_a = prev_words["A"] if prev_words else None
+    partner_prev_a = prev_words["B"] if prev_words else None
+    own_prev_b = prev_words["B"] if prev_words else None
+    partner_prev_b = prev_words["A"] if prev_words else None
+
     result_a = _attempt_step(agent_a, prompt_a, parse_fn)
-    record_a = _agent_record(result_a)
+    record_a = _agent_record(result_a, own_prev_a, partner_prev_a)
 
     if record_a["status"] != "ok":
         return _build_step(step_name, record_a, None)
 
     result_b = _attempt_step(agent_b, prompt_b, parse_fn)
-    record_b = _agent_record(result_b)
+    record_b = _agent_record(result_b, own_prev_b, partner_prev_b)
 
     return _build_step(step_name, record_a, record_b)
 
@@ -118,7 +162,7 @@ def run_pair(role_a, role_b):
             prompt_b = prompts.round_prompt_template.format(partner_list=_words_to_text(prev_a))
 
             step = _run_step(f"round_{round_n}", agent_a, agent_b, prompt_a, prompt_b,
-                              parsing.parse_round)
+                              parsing.parse_round, prev_words={"A": prev_a, "B": prev_b})
             steps.append(step)
 
             if step["status"] != "ok":
@@ -131,7 +175,8 @@ def run_pair(role_a, role_b):
             prompt_a = prompts.final_prompt_template.format(partner_list=_words_to_text(prev_b))
             prompt_b = prompts.final_prompt_template.format(partner_list=_words_to_text(prev_a))
 
-            step = _run_step("final", agent_a, agent_b, prompt_a, prompt_b, parsing.parse_list)
+            step = _run_step("final", agent_a, agent_b, prompt_a, prompt_b, parsing.parse_list,
+                              prev_words={"A": prev_a, "B": prev_b})
             steps.append(step)
 
     total_reminders = sum(
