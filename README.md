@@ -76,6 +76,12 @@ exercise the retry/backoff logic.
 - `README.md` -- this file.
 - `requirements.txt` -- exact pinned dependency versions.
 - `configs/gptoss.json`, `configs/qwen.json` -- one provider/model setup each.
+- `configs/claude.json` -- runs the Claude Code CLI (`provider.type: "claude_cli"`) from
+  `.claude_runs/` with the token read from `.venv/claude_team_token.txt` (env only, never logged).
+  Isolation flags (`--safe-mode --strict-mcp-config --disable-slash-commands`) keep a call
+  to ~850 tokens. Known caveats: the model still sees the account email and a small environment
+  block (cwd, model name, date), and a failed call on a resumed session leaves a duplicate user
+  message in it (counted per reply as `failed_calls_on_resumed_session`).
 - `dat/config.py` -- loads a config file (default `configs/gptoss.json`, or `$DAT_CONFIG_PATH`).
 - `dat/llm.py` -- sends a chat request with rate-limit/network retry and backoff.
 - `dat/prompts.py` -- every prompt template used in the experiment.
