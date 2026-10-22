@@ -10,9 +10,14 @@ def current_settings():
     provider = load_config()["provider"]
     settings = {
         "model": provider["model"],
-        "temperature": provider["temperature"],
-        "max_tokens": provider["max_tokens"],
+        "temperature": provider.get("temperature"),
     }
+    if "max_tokens" in provider:
+        settings["max_tokens"] = provider["max_tokens"]
+    if provider.get("type") == "claude_cli":
+        settings["provider_type"] = "claude_cli"
+        settings["effort"] = provider["effort"]
+        settings["system_prompt"] = provider["system_prompt"]
     if "reasoning_effort" in provider:
         settings["reasoning_effort"] = provider["reasoning_effort"]
     if "reasoning_format" in provider:

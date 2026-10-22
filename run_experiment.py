@@ -86,6 +86,7 @@ def main():
     args = parse_args()
     os.environ["DAT_CONFIG_PATH"] = args.config
     config = load_config(args.config)
+    llm.startup_checks()
     experiment = config["experiment"]
 
     conditions = args.conditions or experiment["conditions"]

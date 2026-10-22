@@ -10,11 +10,13 @@ class Agent:
         self.role = role
         self.client = client
         self.history = []
+        self.session_id = None  # claude_cli only: resumed so each agent keeps its own chat
 
     def send(self, content):
         """Send content, return llm.send()'s rich dict (content/finish_reason/usage)."""
         self.history.append({"role": "user", "content": content})
-        result = llm.send(self.history, client=self.client)
+        result = llm.send(self.history, client=self.client, session_id=self.session_id)
+        self.session_id = result.get("session_id", self.session_id)
         self.history.append({"role": "assistant", "content": result["content"]})
         return result
 
@@ -79,6 +81,9 @@ def attempt_step(agent, prompt, parse_fn):
             "raw_reply": result["content"],
             "finish_reason": result["finish_reason"],
             "usage": result["usage"],
+            # provider extras (claude_cli: model, effort, temperature, version, session_id...)
+            **{k: v for k, v in result.items()
+               if k not in ("content", "finish_reason", "usage")},
         })
         return result["content"]
 
