@@ -4,4 +4,3 @@ a9v2t-osfstorage-archive/
 .pytest_cache/
 .claude_runs/
 __pycache__/
-results/
