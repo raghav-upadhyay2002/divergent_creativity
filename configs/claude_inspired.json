@@ -1,0 +1,31 @@
+{
+  "provider": {
+    "type": "claude_cli",
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "system_prompt": "You are a helpful assistant.",
+    "token_file": ".venv/claude_team_token.txt",
+    "run_dir": ".claude_runs",
+    "timeout_seconds": 300
+  },
+  "experiment": {
+    "n_rounds": 3,
+    "runs_per_condition": 2,
+    "roles": [
+      "product manager",
+      "programmer"
+    ],
+    "conditions": [
+      "no_roles",
+      "different_roles",
+      "same_role",
+      "solo"
+    ],
+    "random_seed": 42,
+    "prompt_set": "inspired"
+  },
+  "paths": {
+    "glove": "a9v2t-osfstorage-archive/model/glove.840B.300d.pickle",
+    "results_dir": "results"
+  }
+}

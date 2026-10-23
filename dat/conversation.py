@@ -228,23 +228,32 @@ def _finish_run(role_a, role_b, steps):
     }
 
 
-def run_solo(client=None):
+def _start_prompt(role, prompt_set):
+    """Pick the start prompt for a role under the given prompt set."""
+    if prompt_set == "inspired":
+        return prompts.inspired_start_prompt(role)
+    return prompts.role_start_prompt(role) if role else prompts.baseline_prompt_1
+
+
+def run_solo(client=None, prompt_set="original"):
     """Run one agent through a single baseline prompt (the "solo" condition)."""
     agent = Agent("A", client=client)
-    step = _run_step("start", "start", agent, None, prompts.baseline_prompt_1, None,
+    step = _run_step("start", "start", agent, None, _start_prompt(None, prompt_set), None,
                       parsing.parse_list)
     return _finish_run(None, None, [step])
 
 
-def run_pair(role_a, role_b, client=None):
+def run_pair(role_a, role_b, client=None, prompt_set="original"):
     """Run a two-agent conversation: start, 3 rounds, then a final combined list."""
     agent_a = Agent("A", role_a, client=client)
     agent_b = Agent("B", role_b, client=client)
 
     steps = []
 
-    start_prompt_a = prompts.role_start_prompt(role_a) if role_a else prompts.baseline_prompt_1
-    start_prompt_b = prompts.role_start_prompt(role_b) if role_b else prompts.baseline_prompt_1
+    start_prompt_a = _start_prompt(role_a, prompt_set)
+    start_prompt_b = _start_prompt(role_b, prompt_set)
+    round_template = (prompts.ACCEPT_REJECT_ROUND if prompt_set == "inspired"
+                      else prompts.round_prompt_template)
 
     step = _run_step("start", "start", agent_a, agent_b, start_prompt_a, start_prompt_b,
                       parsing.parse_list)
@@ -257,8 +266,8 @@ def run_pair(role_a, role_b, client=None):
         prev_valid_b = step["agent_b"]["valid_words"]
 
         for round_n in (1, 2, 3):
-            prompt_a = prompts.round_prompt_template.format(partner_list=_words_to_text(prev_b))
-            prompt_b = prompts.round_prompt_template.format(partner_list=_words_to_text(prev_a))
+            prompt_a = round_template.format(partner_list=_words_to_text(prev_b))
+            prompt_b = round_template.format(partner_list=_words_to_text(prev_a))
 
             step = _run_step(f"round_{round_n}", "round", agent_a, agent_b, prompt_a, prompt_b,
                               parsing.parse_round,

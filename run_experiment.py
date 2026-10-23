@@ -69,12 +69,12 @@ def resume(specs, runs_path, failures_path):
     return pending, len(failed)
 
 
-def run_one(spec, runs_path):
+def run_one(spec, runs_path, prompt_set="original"):
     """Run one spec (solo or pair), save it, and return the saved record."""
     if spec["condition"] == "solo":
-        result = conversation.run_solo()
+        result = conversation.run_solo(prompt_set=prompt_set)
     else:
-        result = conversation.run_pair(spec["role_a"], spec["role_b"])
+        result = conversation.run_pair(spec["role_a"], spec["role_b"], prompt_set=prompt_set)
 
     record = storage.build_record(spec["run_id"], spec["condition"], result)
     storage.save_run(record, runs_path)
@@ -89,6 +89,10 @@ def main():
     llm.startup_checks()
     experiment = config["experiment"]
 
+    prompt_set = experiment.get("prompt_set", "original")
+    if prompt_set not in ("original", "inspired"):
+        raise SystemExit(f"Unknown prompt_set: {prompt_set!r}")
+
     conditions = args.conditions or experiment["conditions"]
     runs_per_condition = args.n if args.n is not None else experiment["runs_per_condition"]
 
@@ -98,7 +102,7 @@ def main():
     runs_path, failures_path = results_paths(config, args.config)
     pending, n_moved = resume(specs, runs_path, failures_path)
 
-    print(f"Config: {args.config}")
+    print(f"Config: {args.config} (prompt_set: {prompt_set})")
     print(f"Results: {runs_path}")
     if n_moved:
         print(f"Moved {n_moved} old failed record(s) to {failures_path} (kept, not deleted)")
@@ -108,7 +112,7 @@ def main():
     completed = 0
     for spec in pending:
         try:
-            record = run_one(spec, runs_path)
+            record = run_one(spec, runs_path, prompt_set)
         except llm.DailyLimitReached:
             print(f"Daily limit reached. Completed {completed} run(s) before stopping.")
             break

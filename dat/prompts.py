@@ -19,6 +19,26 @@ def role_start_prompt(role):
     )
 
 
+BACKGROUNDS = {
+    "programmer": "You are a programmer. Your background is in logic, software systems and data.",
+    "product manager": "You are a product manager. Your background is in business strategy, customers and teamwork.",
+}
+
+INSPIRED_LINE = "Choose nouns inspired by your own background and experience. "
+
+
+def inspired_start_prompt(role=None):
+    """Build the start prompt for the "inspired" prompt set (role optional)."""
+    body = (
+        INSPIRED_LINE
+        + "Help me generate 10 nouns that are as different from each other as possible "
+        + f"using the instructions below:\n{_baseline_rules}"
+    )
+    if role:
+        return BACKGROUNDS[role] + "\n\n" + body
+    return body
+
+
 round_prompt_template = '''\
 You are working with a partner on this task. Your partner's latest list is:
 {partner_list}
@@ -28,6 +48,18 @@ Look at your list and your partner's list. Write one or two sentences of comment
 Reply in this format:
 COMMENT: <one or two sentences>
 WORDS: noun_1, noun_2, noun_3, noun_4, noun_5, noun_6, noun_7, noun_8, noun_9, noun_10'''
+
+ACCEPT_REJECT_ROUND = """You are working with a partner on this task. Your partner's latest list is:
+{partner_list}
+
+Judge your partner's words from your own background and experience. For each of your partner's 10 words, decide whether to ACCEPT it into your list or REJECT it, and give a short reason (a few words). Then give your improved list of 10 nouns that are as different from each other as possible. Follow the same rules as before.
+
+Reply in exactly this format:
+1. <word>: ACCEPT or REJECT - <reason>
+2. <word>: ACCEPT or REJECT - <reason>
+...
+10. <word>: ACCEPT or REJECT - <reason>
+WORDS: noun_1, noun_2, noun_3, noun_4, noun_5, noun_6, noun_7, noun_8, noun_9, noun_10"""
 
 final_prompt_template = '''\
 Your partner's latest list is:
