@@ -82,6 +82,7 @@ exercise the retry/backoff logic.
   to ~850 tokens. Known caveats: the model still sees the account email and a small environment
   block (cwd, model name, date), and a failed call on a resumed session leaves a duplicate user
   message in it (counted per reply as `failed_calls_on_resumed_session`).
+- `configs/claude_inspired.json` -- a variant configuration for Claude model experiments.
 - `dat/config.py` -- loads a config file (default `configs/gptoss.json`, or `$DAT_CONFIG_PATH`).
 - `dat/llm.py` -- sends a chat request with rate-limit/network retry and backoff.
 - `dat/prompts.py` -- every prompt template used in the experiment.
